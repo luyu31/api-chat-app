@@ -290,6 +290,49 @@ html, body {
 }
 .novel-character-row input { padding: 7px 9px; font-size: 13px; }
 
+/* ---------- 角色扮演 ---------- */
+.roleplay-required-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: middle;
+}
+.roleplay-start { display: flex; flex-direction: column; gap: 6px; }
+.roleplay-start .field-hint { text-align: center; }
+.roleplay-header {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 8px 16px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.roleplay-header-name {
+  max-width: 35%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--accent);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.roleplay-header-scenario {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+.roleplay-header .btn { flex-shrink: 0; }
+
 /* ---------- 消息列表 ---------- */
 .messages {
   flex: 1;
@@ -676,6 +719,52 @@ textarea { resize: vertical; }
         </div>
       </section>
 
+      <!-- 角色设定：仅角色扮演会话显示 -->
+      <section class="novel-panel roleplay-panel" id="roleplay-panel" hidden>
+        <div class="novel-panel-head">
+          <button class="novel-panel-toggle" id="btn-roleplay-panel-toggle" type="button" aria-expanded="false" aria-controls="roleplay-panel-body">
+            <span class="novel-panel-caret" aria-hidden="true">▸</span>
+            <span>角色设定</span>
+          </button>
+        </div>
+        <div class="novel-panel-body" id="roleplay-panel-body" hidden>
+          <label class="field">
+            <span class="field-label">角色名<span class="roleplay-required-dot" title="必填" aria-label="必填"></span></span>
+            <input type="text" id="roleplay-character-name" autocomplete="off" aria-required="true" />
+          </label>
+          <label class="field">
+            <span class="field-label">角色人设</span>
+            <textarea id="roleplay-character-persona" rows="3" placeholder="性格 / 背景 / 说话习惯"></textarea>
+          </label>
+          <label class="field">
+            <span class="field-label">我的人设</span>
+            <textarea id="roleplay-user-persona" rows="2" placeholder="我是谁、和角色的关系"></textarea>
+          </label>
+          <label class="field">
+            <span class="field-label">场景</span>
+            <textarea id="roleplay-scenario" rows="2" placeholder="地点、正在发生什么"></textarea>
+          </label>
+          <label class="field">
+            <span class="field-label">说话风格</span>
+            <input type="text" id="roleplay-speech-style" autocomplete="off" placeholder="如：短句、爱用反问、偶尔文言" />
+          </label>
+          <label class="field">
+            <span class="field-label">开场白</span>
+            <textarea id="roleplay-opening-line" rows="2" placeholder="角色说的第一句，留空则由 AI 生成"></textarea>
+          </label>
+          <div class="roleplay-start" id="roleplay-start-wrap">
+            <button class="btn btn-primary btn-block" id="btn-start-roleplay" type="button">开始对话</button>
+            <span class="field-hint" id="roleplay-start-hint">请先填写角色名</span>
+          </div>
+        </div>
+      </section>
+
+      <div class="roleplay-header" id="roleplay-header" hidden>
+        <span class="roleplay-header-name" id="roleplay-header-name"></span>
+        <span class="roleplay-header-scenario" id="roleplay-header-scenario"></span>
+        <button class="btn btn-ghost btn-sm" id="btn-restart-roleplay" type="button">重开</button>
+      </div>
+
       <section class="messages" id="messages" aria-live="polite"></section>
 
       <!-- 空状态 -->
@@ -955,7 +1044,19 @@ textarea { resize: vertical; }
       characterPersona: '',
       userPersona: '',
       scenario: '',
+      openingLine: '',
+      speechStyle: '',
     };
+  }
+
+  /** 规范化角色设定：老数据自动补齐 openingLine / speechStyle */
+  function normalizeRoleplayMeta(meta) {
+    const source = meta && typeof meta === 'object' && !Array.isArray(meta) ? meta : {};
+    const normalized = defaultRoleplayMeta();
+    for (const key of Object.keys(normalized)) {
+      normalized[key] = typeof source[key] === 'string' ? source[key] : '';
+    }
+    return normalized;
   }
 
   /**
@@ -999,8 +1100,7 @@ textarea { resize: vertical; }
       out.novelMeta = Object.assign(defaultNovelMeta(), meta, { characters });
     }
     if (t === 'roleplay') {
-      const meta = conv.roleplayMeta && typeof conv.roleplayMeta === 'object' ? conv.roleplayMeta : {};
-      out.roleplayMeta = Object.assign(defaultRoleplayMeta(), meta);
+      out.roleplayMeta = normalizeRoleplayMeta(conv.roleplayMeta);
     }
     return out;
   }
@@ -1243,6 +1343,53 @@ textarea { resize: vertical; }
 
 ;
 /**
+ * roleplay.js — 角色扮演专用的 system prompt 纯函数
+ */
+(function () {
+  'use strict';
+
+  function cleanRoleplayText(value) {
+    if (value === undefined || value === null) return '';
+    return String(value).trim().replace(/\n{3,}/g, '\n\n');
+  }
+
+  /** 根据角色设定构建 system prompt，空字段对应整段跳过。 */
+  function buildRoleplaySystemPrompt(conv) {
+    const meta = conv?.roleplayMeta ?? {};
+    const characterName = cleanRoleplayText(meta.characterName) || '未命名角色';
+    const sections = ['你正在进行沉浸式角色扮演，扮演「' + characterName + '」。'];
+
+    const roleLines = ['角色名：' + characterName];
+    const characterPersona = cleanRoleplayText(meta.characterPersona);
+    if (characterPersona) roleLines.push('人设：' + characterPersona);
+    sections.push('角色设定\n' + roleLines.join('\n'));
+
+    const userPersona = cleanRoleplayText(meta.userPersona);
+    if (userPersona) sections.push('用户设定\n' + userPersona);
+
+    const scenario = cleanRoleplayText(meta.scenario);
+    if (scenario) sections.push('场景\n' + scenario);
+
+    const speechStyle = cleanRoleplayText(meta.speechStyle);
+    if (speechStyle) sections.push('说话风格\n' + speechStyle);
+
+    sections.push(
+      '硬规则\n' +
+      '你只能以「' + characterName + '」的第一人称说话，始终保持角色，不跳出角色、不解释自己是 AI；\n' +
+      '不替用户说话、不替用户做决定、不推进用户没做的动作；\n' +
+      '动作与神态用中文全角括号包裹，例如（他偏过头，避开视线）；\n' +
+      '单次回复 1-3 段，不长篇大论、不复述前文、不总结对话；\n' +
+      '不以「好的」「明白」「当然」这类服务性语句开头；\n' +
+      '设定之外可以即兴，但不得与已有设定冲突。'
+    );
+    return sections.join('\n\n');
+  }
+
+  window.RoleplayPrompt = { buildRoleplaySystemPrompt };
+})();
+
+;
+/**
  * app.js — 界面逻辑：会话管理、消息渲染、流式输出、设置弹窗
  */
 (function () {
@@ -1275,6 +1422,22 @@ textarea { resize: vertical; }
     novelActions: $('novel-actions'),
     btnContinueNovel: $('btn-continue-novel'),
     btnNewChapter: $('btn-new-chapter'),
+    roleplayPanel: $('roleplay-panel'),
+    btnRoleplayPanelToggle: $('btn-roleplay-panel-toggle'),
+    roleplayPanelBody: $('roleplay-panel-body'),
+    roleplayCharacterName: $('roleplay-character-name'),
+    roleplayCharacterPersona: $('roleplay-character-persona'),
+    roleplayUserPersona: $('roleplay-user-persona'),
+    roleplayScenario: $('roleplay-scenario'),
+    roleplaySpeechStyle: $('roleplay-speech-style'),
+    roleplayOpeningLine: $('roleplay-opening-line'),
+    roleplayStartWrap: $('roleplay-start-wrap'),
+    btnStartRoleplay: $('btn-start-roleplay'),
+    roleplayStartHint: $('roleplay-start-hint'),
+    roleplayHeader: $('roleplay-header'),
+    roleplayHeaderName: $('roleplay-header-name'),
+    roleplayHeaderScenario: $('roleplay-header-scenario'),
+    btnRestartRoleplay: $('btn-restart-roleplay'),
     messages: $('messages'),
     emptyState: $('empty-state'),
     input: $('input'),
@@ -1303,9 +1466,13 @@ textarea { resize: vertical; }
   /* 会话类型 → 列表标签 */
   const TYPE_LABELS = { novel: '小说', roleplay: '角色', chat: '聊天' };
   const NOVEL_CONTEXT_LIMIT = 12;
+  const CONTEXT_CHAR_LIMIT = 12000;
   const NOVEL_CONTINUE_INSTRUCTION = '请紧接着上面的内容继续写，保持文风、人称和人物状态一致，直接输出正文，不要重复已写内容，不要总结';
+  const ROLEPLAY_OPENING_INSTRUCTION = '请以角色身份说一句开场白，直接输出台词，不要旁白';
+  const DEFAULT_INPUT_PLACEHOLDER = els.input.placeholder;
   const novelPanelOpen = new Map(); // 仅内存保存折叠状态
-  let novelSaveTimer = null;
+  const roleplayPanelOpen = new Map(); // 仅内存保存折叠状态
+  let convSaveTimer = null;
 
   /* ---------- 工具 ---------- */
   function toast(msg, isError) {
@@ -1346,15 +1513,15 @@ textarea { resize: vertical; }
     return conv.novelMeta;
   }
 
-  function scheduleNovelSave() {
-    clearTimeout(novelSaveTimer);
-    novelSaveTimer = setTimeout(flushNovelSave, 500);
+  function scheduleConvSave() {
+    clearTimeout(convSaveTimer);
+    convSaveTimer = setTimeout(flushConvSave, 500);
   }
 
-  function flushNovelSave() {
-    if (!novelSaveTimer) return;
-    clearTimeout(novelSaveTimer);
-    novelSaveTimer = null;
+  function flushConvSave() {
+    if (!convSaveTimer) return;
+    clearTimeout(convSaveTimer);
+    convSaveTimer = null;
     Store.saveConversations(conversations);
   }
 
@@ -1410,6 +1577,84 @@ textarea { resize: vertical; }
     renderNovelCharacters(meta.characters);
   }
 
+  /* ---------- 角色扮演面板 ---------- */
+  function ensureRoleplayMeta(conv) {
+    if (!conv.roleplayMeta || typeof conv.roleplayMeta !== 'object') {
+      conv.roleplayMeta = {
+        characterName: '', characterPersona: '', userPersona: '',
+        scenario: '', openingLine: '', speechStyle: '',
+      };
+    }
+    return conv.roleplayMeta;
+  }
+
+  function renderRoleplayPanel() {
+    const conv = getActiveConv();
+    const isRoleplay = conv?.type === 'roleplay';
+    els.roleplayPanel.hidden = !isRoleplay;
+    els.roleplayHeader.hidden = !isRoleplay;
+    if (!isRoleplay) {
+      els.input.placeholder = DEFAULT_INPUT_PLACEHOLDER;
+      return;
+    }
+
+    const meta = ensureRoleplayMeta(conv);
+    const rawName = String(meta.characterName ?? '').trim();
+    const characterName = rawName || '未命名角色';
+    els.roleplayCharacterName.value = meta.characterName ?? '';
+    els.roleplayCharacterPersona.value = meta.characterPersona ?? '';
+    els.roleplayUserPersona.value = meta.userPersona ?? '';
+    els.roleplayScenario.value = meta.scenario ?? '';
+    els.roleplaySpeechStyle.value = meta.speechStyle ?? '';
+    els.roleplayOpeningLine.value = meta.openingLine ?? '';
+    els.roleplayHeaderName.textContent = characterName;
+    els.roleplayHeaderScenario.textContent = meta.scenario ?? '';
+    els.roleplayHeaderScenario.title = meta.scenario ?? '';
+    els.input.placeholder = '以 ' + characterName + ' 的身份说话…';
+
+    const hasMessages = conv.messages.length > 0;
+    els.roleplayStartWrap.hidden = hasMessages;
+    els.btnStartRoleplay.disabled = !rawName;
+    els.btnStartRoleplay.title = rawName ? '' : '请先填写角色名';
+    els.roleplayStartHint.hidden = hasMessages || Boolean(rawName);
+
+    let open = roleplayPanelOpen.get(conv.id);
+    if (open === undefined) {
+      open = !hasMessages && !rawName;
+      roleplayPanelOpen.set(conv.id, open);
+    }
+    els.roleplayPanelBody.hidden = !open;
+    els.btnRoleplayPanelToggle.setAttribute('aria-expanded', String(open));
+  }
+
+  function startRoleplay() {
+    const conv = getActiveConv();
+    if (conv?.type !== 'roleplay' || conv.messages.length || abortController) return;
+    const meta = ensureRoleplayMeta(conv);
+    if (!String(meta.characterName ?? '').trim()) return;
+    flushConvSave();
+    const openingLine = String(meta.openingLine ?? '').trim();
+    if (openingLine) {
+      conv.messages.push({ role: 'assistant', content: openingLine, ts: Date.now() });
+      Store.saveConversations(conversations);
+      renderAll();
+      els.input.focus();
+      return;
+    }
+    sendMessage(ROLEPLAY_OPENING_INSTRUCTION);
+  }
+
+  function restartRoleplay() {
+    const conv = getActiveConv();
+    if (conv?.type !== 'roleplay' || abortController) return;
+    if (!window.confirm('确定要重开这段角色扮演吗？消息将被清空，角色设定会保留。')) return;
+    flushConvSave();
+    conv.messages = [];
+    Store.saveConversations(conversations);
+    renderAll();
+    els.input.focus();
+  }
+
   /* ---------- 渲染：会话列表 ---------- */
   function renderConvList() {
     els.convList.innerHTML = '';
@@ -1452,7 +1697,7 @@ textarea { resize: vertical; }
       item.appendChild(del);
 
       const open = () => {
-        flushNovelSave();
+        flushConvSave();
         activeId = conv.id;
         Store.saveActiveId(activeId);
         renderAll();
@@ -1467,7 +1712,7 @@ textarea { resize: vertical; }
   }
 
   function deleteConversation(id) {
-    flushNovelSave();
+    flushConvSave();
     conversations = conversations.filter((c) => c.id !== id);
     Store.saveConversations(conversations);
     if (activeId === id) {
@@ -1542,12 +1787,13 @@ textarea { resize: vertical; }
     renderConnBadge();
     renderConvList();
     renderNovelPanel();
+    renderRoleplayPanel();
     renderMessages();
   }
 
   /* ---------- 会话操作 ---------- */
   function newConversation(type) {
-    flushNovelSave();
+    flushConvSave();
     const conv = Store.createConversation(type);
     conversations.push(conv);
     activeId = conv.id;
@@ -1577,9 +1823,35 @@ textarea { resize: vertical; }
     else closeNewChatMenu(true);
   }
 
+  /* ---------- 请求 system 与上下文裁剪 ---------- */
+  function buildSystemMessages(conv) {
+    if (conv.type === 'novel') {
+      return [{ role: 'system', content: NovelPrompt.buildNovelSystemPrompt(conv) }];
+    }
+    if (conv.type === 'roleplay') {
+      return [{ role: 'system', content: RoleplayPrompt.buildRoleplaySystemPrompt(conv) }];
+    }
+    return settings.systemPrompt ? [{ role: 'system', content: settings.systemPrompt }] : [];
+  }
+
+  function trimContextMessages(messages) {
+    const result = [];
+    let totalChars = 0;
+    for (let i = messages.length - 1; i >= 0 && result.length < NOVEL_CONTEXT_LIMIT; i--) {
+      const message = messages[i];
+      const length = String(message.content ?? '').length;
+      if (result.length > 0 && totalChars + length > CONTEXT_CHAR_LIMIT) break;
+      result.unshift({ role: message.role, content: message.content });
+      totalChars += length;
+      if (totalChars >= CONTEXT_CHAR_LIMIT) break;
+    }
+    return result;
+  }
+
   /* ---------- 发送消息（流式） ---------- */
   async function sendMessage(overrideText) {
-    const text = (typeof overrideText === 'string' ? overrideText : els.input.value).trim();
+    const hasOverride = typeof overrideText === 'string';
+    const text = (hasOverride ? overrideText : els.input.value).trim();
     if (!text || abortController) return;
 
     if (!Store.isConfigured(settings)) {
@@ -1597,22 +1869,28 @@ textarea { resize: vertical; }
       Store.saveActiveId(activeId);
     }
 
-    // 用户消息落库
-    const userMsg = { role: 'user', content: text, ts: Date.now() };
-    if (conv.type === 'novel') userMsg.chapter = Number(conv.novelMeta?.currentChapter) || 0;
-    conv.messages.push(userMsg);
-    if (conv.title === '新对话') conv.title = autoTitle(text);
+    // 普通输入落库；overrideText 仅作为本次请求指令，不写入会话、不渲染气泡
+    let userMsg = null;
+    if (!hasOverride) {
+      userMsg = { role: 'user', content: text, ts: Date.now() };
+      if (conv.type === 'novel') userMsg.chapter = Number(conv.novelMeta?.currentChapter) || 0;
+      conv.messages.push(userMsg);
+      if (conv.title === '新对话') conv.title = autoTitle(text);
+      els.input.value = '';
+      autoGrow();
+    }
     Store.saveConversations(conversations);
 
-    els.input.value = '';
-    autoGrow();
     setSending(true);
     renderAll();
 
     // 占位助手消息，边收边渲染
     const assistantMsg = { role: 'assistant', content: '', ts: Date.now() };
-    if (conv.type === 'novel') assistantMsg.chapter = userMsg.chapter;
+    if (conv.type === 'novel') {
+      assistantMsg.chapter = userMsg ? userMsg.chapter : Number(conv.novelMeta?.currentChapter) || 0;
+    }
     conv.messages.push(assistantMsg);
+    if (conv.type === 'roleplay') renderRoleplayPanel();
     const node = msgNode(assistantMsg);
     node.querySelector('.msg-body').classList.add('cursor-blink');
     els.messages.appendChild(node);
@@ -1620,18 +1898,13 @@ textarea { resize: vertical; }
     els.messages.style.display = '';
 
     abortController = new AbortController();
-    const isNovel = conv.type === 'novel';
     const previousMessages = conv.messages.slice(0, -1);
-    const requestMessages = isNovel
-      ? [
-          { role: 'system', content: NovelPrompt.buildNovelSystemPrompt(conv) },
-          ...previousMessages.slice(-NOVEL_CONTEXT_LIMIT).map((m) => ({ role: m.role, content: m.content })),
-        ]
-      : previousMessages;
+    if (hasOverride) previousMessages.push({ role: 'user', content: text });
+    const contextMessages = conv.type === 'chat' ? previousMessages : trimContextMessages(previousMessages);
+    const requestMessages = [...buildSystemMessages(conv), ...contextMessages];
     try {
       await API.streamChat(settings, requestMessages, {
         signal: abortController.signal,
-        ...(isNovel ? {} : { systemPrompt: settings.systemPrompt || undefined }),
         onDelta: (delta) => {
           assistantMsg.content += delta;
           const body = node.querySelector('.msg-body');
@@ -1661,13 +1934,14 @@ textarea { resize: vertical; }
   function continueNovel() {
     const conv = getActiveConv();
     if (conv?.type !== 'novel' || abortController) return;
-    sendMessage(els.input.value.trim() || NOVEL_CONTINUE_INSTRUCTION);
+    if (els.input.value.trim()) sendMessage();
+    else sendMessage(NOVEL_CONTINUE_INSTRUCTION);
   }
 
   function newNovelChapter() {
     const conv = getActiveConv();
     if (conv?.type !== 'novel' || abortController) return;
-    flushNovelSave();
+    flushConvSave();
     const meta = ensureNovelMeta(conv);
     meta.currentChapter = (Number(meta.currentChapter) || 0) + 1;
     Store.saveConversations(conversations);
@@ -1681,6 +1955,7 @@ textarea { resize: vertical; }
     els.input.disabled = sending;
     els.btnContinueNovel.disabled = sending;
     els.btnNewChapter.disabled = sending;
+    els.btnRestartRoleplay.disabled = sending;
   }
 
   function stopStreaming() {
@@ -1792,7 +2067,7 @@ textarea { resize: vertical; }
       const conv = getActiveConv();
       if (conv?.type !== 'novel') return;
       ensureNovelMeta(conv)[field] = input.value;
-      scheduleNovelSave();
+      scheduleConvSave();
     });
   }
   els.btnAddCharacter.addEventListener('click', () => {
@@ -1800,7 +2075,7 @@ textarea { resize: vertical; }
     if (conv?.type !== 'novel') return;
     const meta = ensureNovelMeta(conv);
     meta.characters.push({ id: Store.uuid(), name: '', role: '', desc: '' });
-    scheduleNovelSave();
+    scheduleConvSave();
     renderNovelCharacters(meta.characters);
     els.novelCharacters.lastElementChild?.querySelector('input')?.focus();
   });
@@ -1812,7 +2087,7 @@ textarea { resize: vertical; }
     const character = ensureNovelMeta(conv).characters.find((c) => c.id === row.dataset.characterId);
     if (!character) return;
     character[field] = e.target.value;
-    scheduleNovelSave();
+    scheduleConvSave();
   });
   els.novelCharacters.addEventListener('click', (e) => {
     const button = e.target.closest('[data-delete-character]');
@@ -1820,12 +2095,49 @@ textarea { resize: vertical; }
     if (!button || conv?.type !== 'novel') return;
     const meta = ensureNovelMeta(conv);
     meta.characters = meta.characters.filter((c) => c.id !== button.dataset.deleteCharacter);
-    scheduleNovelSave();
+    scheduleConvSave();
     renderNovelCharacters(meta.characters);
   });
   els.btnContinueNovel.addEventListener('click', continueNovel);
   els.btnNewChapter.addEventListener('click', newNovelChapter);
-  window.addEventListener('beforeunload', flushNovelSave);
+
+  els.btnRoleplayPanelToggle.addEventListener('click', () => {
+    const conv = getActiveConv();
+    if (conv?.type !== 'roleplay') return;
+    roleplayPanelOpen.set(conv.id, els.roleplayPanelBody.hidden);
+    renderRoleplayPanel();
+  });
+  for (const [input, field] of [
+    [els.roleplayCharacterName, 'characterName'],
+    [els.roleplayCharacterPersona, 'characterPersona'],
+    [els.roleplayUserPersona, 'userPersona'],
+    [els.roleplayScenario, 'scenario'],
+    [els.roleplaySpeechStyle, 'speechStyle'],
+    [els.roleplayOpeningLine, 'openingLine'],
+  ]) {
+    input.addEventListener('input', () => {
+      const conv = getActiveConv();
+      if (conv?.type !== 'roleplay') return;
+      ensureRoleplayMeta(conv)[field] = input.value;
+      scheduleConvSave();
+      if (field === 'characterName') {
+        const rawName = input.value.trim();
+        const characterName = rawName || '未命名角色';
+        els.roleplayHeaderName.textContent = characterName;
+        els.input.placeholder = '以 ' + characterName + ' 的身份说话…';
+        els.btnStartRoleplay.disabled = !rawName;
+        els.btnStartRoleplay.title = rawName ? '' : '请先填写角色名';
+        els.roleplayStartHint.hidden = Boolean(rawName);
+      }
+      if (field === 'scenario') {
+        els.roleplayHeaderScenario.textContent = input.value;
+        els.roleplayHeaderScenario.title = input.value;
+      }
+    });
+  }
+  els.btnStartRoleplay.addEventListener('click', startRoleplay);
+  els.btnRestartRoleplay.addEventListener('click', restartRoleplay);
+  window.addEventListener('beforeunload', flushConvSave);
 
   els.form.addEventListener('submit', (e) => { e.preventDefault(); saveSettingsFromForm(); });
   els.btnCancelSettings.addEventListener('click', closeSettings);
