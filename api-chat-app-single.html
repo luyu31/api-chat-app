@@ -76,6 +76,53 @@ html, body {
 .sidebar-head { padding: 12px; }
 .sidebar-foot { padding: 12px; border-top: 1px solid var(--border); margin-top: auto; }
 
+/* ---------- 新对话：类型选择菜单 ---------- */
+.new-chat-wrap { position: relative; }
+.new-chat-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+}
+.new-chat-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 150ms ease-out, color 150ms ease-out;
+}
+.new-chat-option:hover,
+.new-chat-option:focus-visible { background: var(--bg-raised); color: var(--text); }
+.new-chat-option:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.new-chat-option .nc-label { flex: 1; }
+.new-chat-option .nc-tag {
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+}
+
 .conversation-list {
   flex: 1;
   overflow-y: auto;
@@ -110,6 +157,20 @@ html, body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 会话类型标签 */
+.conversation-item .ci-type {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+}
+.conversation-item .ci-type[data-type="novel"] { color: var(--accent); border-color: var(--accent); }
+.conversation-item .ci-type[data-type="roleplay"] { color: var(--text-muted); border-color: var(--text-faint); }
 .conversation-item .ci-del {
   flex-shrink: 0;
   border: 0;
@@ -465,10 +526,26 @@ textarea { resize: vertical; }
     <!-- ========== 侧边栏：会话列表 ========== -->
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-head">
-        <button class="btn btn-primary btn-block" id="btn-new-chat">
-          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-          新对话
-        </button>
+        <div class="new-chat-wrap">
+          <button class="btn btn-primary btn-block" id="btn-new-chat" aria-haspopup="menu" aria-expanded="false" aria-controls="new-chat-menu">
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            新对话
+          </button>
+          <div class="new-chat-menu" id="new-chat-menu" role="menu" aria-label="选择会话类型" hidden>
+            <button class="new-chat-option" type="button" role="menuitem" data-type="novel">
+              <span class="nc-label">写小说</span>
+              <span class="nc-tag mono">小说</span>
+            </button>
+            <button class="new-chat-option" type="button" role="menuitem" data-type="roleplay">
+              <span class="nc-label">角色扮演</span>
+              <span class="nc-tag mono">角色</span>
+            </button>
+            <button class="new-chat-option" type="button" role="menuitem" data-type="chat">
+              <span class="nc-label">普通聊天</span>
+              <span class="nc-tag mono">聊天</span>
+            </button>
+          </div>
+        </div>
       </div>
       <nav class="conversation-list" id="conversation-list" aria-label="会话列表"></nav>
       <div class="sidebar-foot">
@@ -740,12 +817,84 @@ textarea { resize: vertical; }
     return Boolean(settings.baseUrl && settings.apiKey && settings.model);
   }
 
-  /** 读取全部会话：[{ id, title, createdAt, messages: [{role, content, ts}] }] */
+  /* ---------- 会话数据模型 ---------- */
+  const CONV_TYPES = ['novel', 'roleplay', 'chat'];
+  const CONV_TITLES = {
+    novel: '未命名小说',
+    roleplay: '未命名角色',
+    chat: '新对话',
+  };
+
+  /** 小说会话的默认 meta */
+  function defaultNovelMeta() {
+    return {
+      title: '',
+      genre: '',
+      characters: [],
+      worldSetting: '',
+      outline: '',
+      currentChapter: 0,
+    };
+  }
+
+  /** 角色扮演会话的默认 meta */
+  function defaultRoleplayMeta() {
+    return {
+      characterName: '',
+      characterPersona: '',
+      userPersona: '',
+      scenario: '',
+    };
+  }
+
+  /**
+   * 新建会话工厂（唯一入口）
+   * @param {'novel'|'roleplay'|'chat'} type
+   * @returns {{id: string, type: string, title: string, createdAt: number, messages: Array, novelMeta?: object, roleplayMeta?: object}}
+   */
+  function createConversation(type) {
+    const t = CONV_TYPES.includes(type) ? type : 'chat';
+    const conv = {
+      id: uuid(),
+      type: t,
+      title: CONV_TITLES[t],
+      createdAt: Date.now(),
+      messages: [],
+    };
+    if (t === 'novel') conv.novelMeta = defaultNovelMeta();
+    if (t === 'roleplay') conv.roleplayMeta = defaultRoleplayMeta();
+    return conv;
+  }
+
+  /** 兼容旧数据：补齐 type / messages / meta，保证老会话可正常打开 */
+  function normalizeConversation(conv) {
+    if (!conv || typeof conv !== 'object') return null;
+    const t = CONV_TYPES.includes(conv.type) ? conv.type : 'chat';
+    const out = Object.assign({}, conv, {
+      type: t,
+      title: conv.title || CONV_TITLES[t],
+      messages: Array.isArray(conv.messages) ? conv.messages : [],
+    });
+    if (t === 'novel') {
+      const meta = conv.novelMeta && typeof conv.novelMeta === 'object' ? conv.novelMeta : {};
+      out.novelMeta = Object.assign(defaultNovelMeta(), meta, {
+        characters: Array.isArray(meta.characters) ? meta.characters : [],
+      });
+    }
+    if (t === 'roleplay') {
+      const meta = conv.roleplayMeta && typeof conv.roleplayMeta === 'object' ? conv.roleplayMeta : {};
+      out.roleplayMeta = Object.assign(defaultRoleplayMeta(), meta);
+    }
+    return out;
+  }
+
+  /** 读取全部会话（旧数据自动补 type: 'chat'） */
   function loadConversations() {
     try {
       const raw = localStorage.getItem(CONVERSATIONS_KEY);
       const list = raw ? JSON.parse(raw) : [];
-      return Array.isArray(list) ? list : [];
+      if (!Array.isArray(list)) return [];
+      return list.map(normalizeConversation).filter(Boolean);
     } catch {
       return [];
     }
@@ -781,6 +930,7 @@ textarea { resize: vertical; }
     isConfigured,
     loadConversations,
     saveConversations,
+    createConversation,
     loadActiveId,
     saveActiveId,
     uuid,
@@ -929,6 +1079,8 @@ textarea { resize: vertical; }
     sidebar: $('sidebar'),
     convList: $('conversation-list'),
     btnNewChat: $('btn-new-chat'),
+    newChatMenu: $('new-chat-menu'),
+    newChatOptions: Array.from(document.querySelectorAll('.new-chat-option')),
     btnSettings: $('btn-settings'),
     btnEmptySettings: $('btn-empty-settings'),
     btnToggleSidebar: $('btn-toggle-sidebar'),
@@ -959,6 +1111,9 @@ textarea { resize: vertical; }
   let conversations = Store.loadConversations();
   let activeId = Store.loadActiveId();
   let abortController = null; // 当前流式请求的取消句柄
+
+  /* 会话类型 → 列表标签 */
+  const TYPE_LABELS = { novel: '小说', roleplay: '角色', chat: '聊天' };
 
   /* ---------- 工具 ---------- */
   function toast(msg, isError) {
@@ -1007,6 +1162,14 @@ textarea { resize: vertical; }
       item.className = 'conversation-item' + (conv.id === activeId ? ' active' : '');
       item.setAttribute('role', 'button');
       item.tabIndex = 0;
+
+      const type = TYPE_LABELS[conv.type] ? conv.type : 'chat';
+      const typeTag = document.createElement('span');
+      typeTag.className = 'ci-type mono';
+      typeTag.dataset.type = type;
+      typeTag.textContent = TYPE_LABELS[type];
+      typeTag.title = { novel: '小说', roleplay: '角色扮演', chat: '普通聊天' }[type];
+      item.appendChild(typeTag);
 
       const title = document.createElement('span');
       title.className = 'ci-title';
@@ -1115,13 +1278,8 @@ textarea { resize: vertical; }
   }
 
   /* ---------- 会话操作 ---------- */
-  function newChat() {
-    const conv = {
-      id: Store.uuid(),
-      title: '新对话',
-      createdAt: Date.now(),
-      messages: [],
-    };
+  function newConversation(type) {
+    const conv = Store.createConversation(type);
     conversations.push(conv);
     activeId = conv.id;
     Store.saveConversations(conversations);
@@ -1129,6 +1287,25 @@ textarea { resize: vertical; }
     renderAll();
     els.input.focus();
     closeSidebarDrawer();
+  }
+
+  /* ---------- 新对话类型菜单 ---------- */
+  function openNewChatMenu() {
+    els.newChatMenu.hidden = false;
+    els.btnNewChat.setAttribute('aria-expanded', 'true');
+    els.newChatOptions[0]?.focus();
+  }
+
+  function closeNewChatMenu(returnFocus) {
+    if (els.newChatMenu.hidden) return;
+    els.newChatMenu.hidden = true;
+    els.btnNewChat.setAttribute('aria-expanded', 'false');
+    if (returnFocus) els.btnNewChat.focus();
+  }
+
+  function toggleNewChatMenu() {
+    if (els.newChatMenu.hidden) openNewChatMenu();
+    else closeNewChatMenu(true);
   }
 
   /* ---------- 发送消息（流式） ---------- */
@@ -1144,7 +1321,8 @@ textarea { resize: vertical; }
 
     let conv = getActiveConv();
     if (!conv) {
-      conv = { id: Store.uuid(), title: autoTitle(text), createdAt: Date.now(), messages: [] };
+      conv = Store.createConversation('chat');
+      conv.title = autoTitle(text);
       conversations.push(conv);
       activeId = conv.id;
       Store.saveActiveId(activeId);
@@ -1278,7 +1456,13 @@ textarea { resize: vertical; }
   }
 
   /* ---------- 事件绑定 ---------- */
-  els.btnNewChat.addEventListener('click', newChat);
+  els.btnNewChat.addEventListener('click', toggleNewChatMenu);
+  for (const opt of els.newChatOptions) {
+    opt.addEventListener('click', () => {
+      closeNewChatMenu(false);
+      newConversation(opt.dataset.type);
+    });
+  }
   els.btnSettings.addEventListener('click', openSettings);
   els.btnEmptySettings.addEventListener('click', openSettings);
   els.btnToggleSidebar.addEventListener('click', () => els.sidebar.classList.toggle('open'));
@@ -1313,12 +1497,22 @@ textarea { resize: vertical; }
   els.modal.addEventListener('click', (e) => { if (e.target === els.modal) closeSettings(); });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !els.modal.hidden) closeSettings();
+    if (e.key === 'Escape' && !els.newChatMenu.hidden) {
+      e.preventDefault();
+      closeNewChatMenu(true);
+    }
+  });
+  // 点击菜单外部关闭类型选择
+  document.addEventListener('click', (e) => {
+    if (!els.newChatMenu.hidden && !e.target.closest('.new-chat-wrap')) {
+      closeNewChatMenu(false);
+    }
   });
 
   /* ---------- 启动 ---------- */
   // 首次使用：若无活动会话则自动创建一个
   if (!getActiveConv()) {
-    const conv = { id: Store.uuid(), title: '新对话', createdAt: Date.now(), messages: [] };
+    const conv = Store.createConversation('chat');
     conversations.push(conv);
     activeId = conv.id;
     Store.saveConversations(conversations);
