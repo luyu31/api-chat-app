@@ -122,6 +122,8 @@ html, body {
   color: var(--text-faint);
   letter-spacing: 0.04em;
 }
+.data-menu-wrap { margin-bottom: 8px; }
+.data-menu { top: auto; bottom: calc(100% + 6px); }
 
 .conversation-list {
   flex: 1;
@@ -270,6 +272,8 @@ html, body {
 .novel-panel-caret { color: var(--accent); transition: transform 150ms ease-out; }
 .novel-panel-toggle[aria-expanded="true"] .novel-panel-caret { transform: rotate(90deg); }
 .novel-chapter { margin-left: auto; color: var(--accent); font-size: 11px; }
+.context-stats { margin-left: auto; color: var(--text-faint); font-size: 10px; white-space: nowrap; }
+.context-stats + .novel-chapter { margin-left: 0; }
 .novel-panel-body {
   max-width: 760px;
   max-height: 44dvh;
@@ -342,6 +346,23 @@ html, body {
   flex-direction: column;
   gap: 20px;
 }
+
+.request-error {
+  width: calc(100% - 32px);
+  max-width: 760px;
+  margin: 4px auto 8px;
+  padding: 9px 10px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--bg-raised);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  color: var(--danger);
+  font-size: 12px;
+}
+.request-error-text { flex: 1; white-space: pre-wrap; word-break: break-word; }
 
 .msg { max-width: 760px; width: 100%; margin: 0 auto; }
 .msg-head {
@@ -653,6 +674,21 @@ textarea { resize: vertical; }
       </div>
       <nav class="conversation-list" id="conversation-list" aria-label="会话列表"></nav>
       <div class="sidebar-foot">
+        <div class="new-chat-wrap data-menu-wrap">
+          <button class="btn btn-ghost btn-block" id="btn-data-menu" aria-haspopup="menu" aria-expanded="false" aria-controls="data-menu">数据</button>
+          <div class="new-chat-menu data-menu" id="data-menu" role="menu" aria-label="数据管理" hidden>
+            <button class="new-chat-option" type="button" role="menuitem" data-action="export-backup">
+              <span class="nc-label">导出全部备份</span><span class="nc-tag mono">JSON</span>
+            </button>
+            <button class="new-chat-option" type="button" role="menuitem" data-action="export-markdown">
+              <span class="nc-label">导出当前会话</span><span class="nc-tag mono">Markdown</span>
+            </button>
+            <button class="new-chat-option" type="button" role="menuitem" data-action="import-backup">
+              <span class="nc-label">导入备份</span><span class="nc-tag mono">JSON</span>
+            </button>
+          </div>
+          <input type="file" id="import-file" accept="application/json,.json" hidden />
+        </div>
         <button class="btn btn-ghost btn-block" id="btn-settings">
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="8" cy="8" r="2.4" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
           API 设置
@@ -680,6 +716,7 @@ textarea { resize: vertical; }
             <span class="novel-panel-caret" aria-hidden="true">▸</span>
             <span>小说设定</span>
           </button>
+          <span class="context-stats mono" id="novel-context-stats"></span>
           <span class="novel-chapter mono" id="novel-chapter">第 1 章</span>
         </div>
         <div class="novel-panel-body" id="novel-panel-body" hidden>
@@ -726,6 +763,7 @@ textarea { resize: vertical; }
             <span class="novel-panel-caret" aria-hidden="true">▸</span>
             <span>角色设定</span>
           </button>
+          <span class="context-stats mono" id="roleplay-context-stats"></span>
         </div>
         <div class="novel-panel-body" id="roleplay-panel-body" hidden>
           <label class="field">
@@ -766,6 +804,13 @@ textarea { resize: vertical; }
       </div>
 
       <section class="messages" id="messages" aria-live="polite"></section>
+
+      <div class="request-error" id="request-error" role="alert" hidden>
+        <span class="request-error-text" id="request-error-text"></span>
+        <button class="icon-btn" id="btn-close-request-error" type="button" aria-label="关闭错误提示">
+          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M3 3l10 10M13 3 3 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+      </div>
 
       <!-- 空状态 -->
       <div class="empty-state" id="empty-state">
@@ -816,7 +861,7 @@ textarea { resize: vertical; }
         <label class="field">
           <span class="field-label">模型名称</span>
           <div class="field-row">
-            <input type="text" id="set-model" placeholder="gpt-4o-mini / deepseek-chat / kimi-k2..." autocomplete="off" />
+            <input type="text" id="set-model" placeholder="deepseek-flash / deepseek-v4-pro" autocomplete="off" />
             <button type="button" class="btn btn-ghost btn-sm" id="btn-fetch-models">拉取列表</button>
           </div>
           <select id="model-select" hidden></select>
@@ -993,7 +1038,7 @@ textarea { resize: vertical; }
   const DEFAULT_SETTINGS = {
     baseUrl: '',      // 例：https://api.openai.com/v1
     apiKey: '',       // 例：sk-...
-    model: '',        // 例：gpt-4o-mini
+    model: 'deepseek-flash', // 可在设置中改为 deepseek-v4-pro
     systemPrompt: '', // 例：你是一位简洁专业的中文助手
   };
 
@@ -1148,6 +1193,7 @@ textarea { resize: vertical; }
     loadConversations,
     saveConversations,
     createConversation,
+    normalizeConversation,
     loadActiveId,
     saveActiveId,
     uuid,
@@ -1402,7 +1448,11 @@ textarea { resize: vertical; }
     convList: $('conversation-list'),
     btnNewChat: $('btn-new-chat'),
     newChatMenu: $('new-chat-menu'),
-    newChatOptions: Array.from(document.querySelectorAll('.new-chat-option')),
+    newChatOptions: Array.from(document.querySelectorAll('.new-chat-option[data-type]')),
+    btnDataMenu: $('btn-data-menu'),
+    dataMenu: $('data-menu'),
+    dataOptions: Array.from(document.querySelectorAll('.new-chat-option[data-action]')),
+    importFile: $('import-file'),
     btnSettings: $('btn-settings'),
     btnEmptySettings: $('btn-empty-settings'),
     btnToggleSidebar: $('btn-toggle-sidebar'),
@@ -1412,6 +1462,7 @@ textarea { resize: vertical; }
     novelPanel: $('novel-panel'),
     btnNovelPanelToggle: $('btn-novel-panel-toggle'),
     novelPanelBody: $('novel-panel-body'),
+    novelContextStats: $('novel-context-stats'),
     novelChapter: $('novel-chapter'),
     novelTitle: $('novel-title'),
     novelGenre: $('novel-genre'),
@@ -1425,6 +1476,7 @@ textarea { resize: vertical; }
     roleplayPanel: $('roleplay-panel'),
     btnRoleplayPanelToggle: $('btn-roleplay-panel-toggle'),
     roleplayPanelBody: $('roleplay-panel-body'),
+    roleplayContextStats: $('roleplay-context-stats'),
     roleplayCharacterName: $('roleplay-character-name'),
     roleplayCharacterPersona: $('roleplay-character-persona'),
     roleplayUserPersona: $('roleplay-user-persona'),
@@ -1439,6 +1491,9 @@ textarea { resize: vertical; }
     roleplayHeaderScenario: $('roleplay-header-scenario'),
     btnRestartRoleplay: $('btn-restart-roleplay'),
     messages: $('messages'),
+    requestError: $('request-error'),
+    requestErrorText: $('request-error-text'),
+    btnCloseRequestError: $('btn-close-request-error'),
     emptyState: $('empty-state'),
     input: $('input'),
     btnSend: $('btn-send'),
@@ -1465,8 +1520,11 @@ textarea { resize: vertical; }
 
   /* 会话类型 → 列表标签 */
   const TYPE_LABELS = { novel: '小说', roleplay: '角色', chat: '聊天' };
-  const NOVEL_CONTEXT_LIMIT = 12;
-  const CONTEXT_CHAR_LIMIT = 12000;
+  const CONTEXT_LIMITS = {
+    novel: { maxMessages: 40, maxChars: 60000 },
+    roleplay: { maxMessages: 30, maxChars: 20000 },
+    chat: null, // 普通聊天保持原有请求路径，不做裁剪
+  };
   const NOVEL_CONTINUE_INSTRUCTION = '请紧接着上面的内容继续写，保持文风、人称和人物状态一致，直接输出正文，不要重复已写内容，不要总结';
   const ROLEPLAY_OPENING_INSTRUCTION = '请以角色身份说一句开场白，直接输出台词，不要旁白';
   const DEFAULT_INPUT_PLACEHOLDER = els.input.placeholder;
@@ -1481,6 +1539,27 @@ textarea { resize: vertical; }
     els.toast.hidden = false;
     clearTimeout(toast._t);
     toast._t = setTimeout(() => { els.toast.hidden = true; }, 3200);
+  }
+
+  function hideRequestError() {
+    els.requestError.hidden = true;
+    els.requestErrorText.textContent = '';
+  }
+
+  function sanitizeRequestErrorText(value) {
+    const text = String(value ?? '');
+    return settings.apiKey ? text.split(settings.apiKey).join('[已隐藏]') : text;
+  }
+
+  function showRequestError(err) {
+    const detail = sanitizeRequestErrorText(err?.message || '未知错误')
+      .replace(/^请求失败（HTTP \d+）：?/, '');
+    const lines = [(err.status ? 'HTTP ' + err.status : '请求失败') + '：' + detail];
+    if (err.status === 401) lines.push('Key 无效或已过期');
+    if (err.status === 429) lines.push('请求过于频繁或余额不足');
+    if (/model|模型/i.test(detail)) lines.push('请在设置里把模型名改为 deepseek-flash');
+    els.requestErrorText.textContent = lines.join('\n');
+    els.requestError.hidden = false;
   }
 
   function getActiveConv() {
@@ -1575,6 +1654,7 @@ textarea { resize: vertical; }
     els.novelPanelBody.hidden = !open;
     els.btnNovelPanelToggle.setAttribute('aria-expanded', String(open));
     renderNovelCharacters(meta.characters);
+    renderContextStats();
   }
 
   /* ---------- 角色扮演面板 ---------- */
@@ -1625,6 +1705,7 @@ textarea { resize: vertical; }
     }
     els.roleplayPanelBody.hidden = !open;
     els.btnRoleplayPanelToggle.setAttribute('aria-expanded', String(open));
+    renderContextStats();
   }
 
   function startRoleplay() {
@@ -1806,6 +1887,7 @@ textarea { resize: vertical; }
 
   /* ---------- 新对话类型菜单 ---------- */
   function openNewChatMenu() {
+    closeDataMenu(false);
     els.newChatMenu.hidden = false;
     els.btnNewChat.setAttribute('aria-expanded', 'true');
     els.newChatOptions[0]?.focus();
@@ -1823,6 +1905,201 @@ textarea { resize: vertical; }
     else closeNewChatMenu(true);
   }
 
+  /* ---------- 数据导入 / 导出 ---------- */
+  function openDataMenu() {
+    closeNewChatMenu(false);
+    els.dataMenu.hidden = false;
+    els.btnDataMenu.setAttribute('aria-expanded', 'true');
+    els.dataOptions[0]?.focus();
+  }
+
+  function closeDataMenu(returnFocus) {
+    els.dataMenu.hidden = true;
+    els.btnDataMenu.setAttribute('aria-expanded', 'false');
+    if (returnFocus) els.btnDataMenu.focus();
+  }
+
+  function toggleDataMenu() {
+    if (els.dataMenu.hidden) openDataMenu();
+    else closeDataMenu(true);
+  }
+
+  function cleanFilenamePart(value, fallback) {
+    const cleaned = String(value ?? '').replace(/[\/\\:*?"<>|]/g, '').split(String.fromCharCode(0)).join('').trim();
+    return cleaned || fallback;
+  }
+
+  function downloadTextFile(content, filename, mimeType) {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function exportAllBackup() {
+    flushConvSave();
+    const backup = {
+      app: 'api-chat-app',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      conversations: conversations.map(Store.normalizeConversation).filter(Boolean),
+    };
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const stamp = now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate()) +
+      '-' + pad(now.getHours()) + pad(now.getMinutes());
+    downloadTextFile(JSON.stringify(backup, null, 2), 'ai-chat-backup-' + stamp + '.json', 'application/json;charset=utf-8');
+    toast('已导出全部会话备份');
+  }
+
+  function normalizeExportText(value) {
+    return String(value ?? '').replace(/\r\n?/g, '\n');
+  }
+
+  function pushMarkdownMeta(lines, label, value) {
+    const text = normalizeExportText(value).trim();
+    if (text) lines.push(label + '：' + text);
+  }
+
+  function conversationToMarkdown(sourceConv) {
+    const conv = Store.normalizeConversation(sourceConv);
+    if (!conv) return '';
+    const lines = [];
+
+    if (conv.type === 'novel') {
+      const meta = conv.novelMeta || {};
+      const bookTitle = String(meta.title ?? '').trim() || '未命名小说';
+      lines.push('# ' + bookTitle, '');
+      pushMarkdownMeta(lines, '题材', meta.genre);
+      pushMarkdownMeta(lines, '世界观', meta.worldSetting);
+      pushMarkdownMeta(lines, '大纲', meta.outline);
+      if (meta.characters.length) {
+        lines.push('人物：');
+        for (const character of meta.characters) {
+          const name = String(character.name ?? '').trim();
+          const role = String(character.role ?? '').trim();
+          const desc = String(character.desc ?? '').trim();
+          const identity = name ? name + (role ? '（' + role + '）' : '') : role;
+          lines.push('- ' + [identity, desc].filter(Boolean).join('：'));
+        }
+      }
+      lines.push('');
+
+      const chapters = new Map();
+      for (const message of conv.messages) {
+        if (message.role !== 'user' && message.role !== 'assistant') continue;
+        const chapter = Number.isFinite(Number(message.chapter)) && Number(message.chapter) >= 0
+          ? Math.floor(Number(message.chapter))
+          : 0;
+        if (!chapters.has(chapter)) chapters.set(chapter, []);
+        chapters.get(chapter).push(message);
+      }
+      for (const [chapter, messages] of chapters) {
+        lines.push('## 第 ' + (chapter + 1) + ' 章', '');
+        for (const message of messages) {
+          const content = normalizeExportText(message.content);
+          if (message.role === 'user') lines.push('> 指令：' + content.replace(/\n/g, '\n> '), '');
+          else lines.push(content, '');
+        }
+      }
+    } else {
+      const isRoleplay = conv.type === 'roleplay';
+      const meta = conv.roleplayMeta || {};
+      const characterName = String(meta.characterName ?? '').trim() || '未命名角色';
+      lines.push('# ' + (isRoleplay ? characterName : conv.title || '新对话'), '');
+      if (isRoleplay) {
+        pushMarkdownMeta(lines, '场景', meta.scenario);
+        pushMarkdownMeta(lines, '角色人设', meta.characterPersona);
+        pushMarkdownMeta(lines, '我的人设', meta.userPersona);
+        pushMarkdownMeta(lines, '说话风格', meta.speechStyle);
+        lines.push('');
+      }
+      for (const message of conv.messages) {
+        if (message.role !== 'user' && message.role !== 'assistant') continue;
+        const speaker = message.role === 'user' ? '我' : isRoleplay ? characterName : 'AI';
+        lines.push('**' + speaker + '**：' + normalizeExportText(message.content), '');
+      }
+    }
+    return normalizeExportText(lines.join('\n'));
+  }
+
+  function exportCurrentMarkdown() {
+    const conv = getActiveConv();
+    if (!conv) {
+      toast('没有可导出的会话', true);
+      return;
+    }
+    flushConvSave();
+    let filename;
+    if (conv.type === 'novel') {
+      const meta = conv.novelMeta || {};
+      const title = cleanFilenamePart(meta.title, '未命名小说');
+      filename = title + '-第' + ((Number(meta.currentChapter) || 0) + 1) + '章.md';
+    } else if (conv.type === 'roleplay') {
+      filename = cleanFilenamePart(conv.roleplayMeta?.characterName, '未命名角色') + '-角色扮演.md';
+    } else {
+      filename = cleanFilenamePart(conv.title, '新对话') + '.md';
+    }
+    downloadTextFile(String.fromCharCode(0xFEFF) + conversationToMarkdown(conv), filename, 'text/markdown;charset=utf-8');
+    toast('已导出当前会话');
+  }
+
+  function importBackup(file) {
+    const reader = new FileReader();
+    reader.onerror = () => toast('读取备份文件失败', true);
+    reader.onload = () => {
+      try {
+        const raw = String(reader.result || '');
+        const text = raw.charCodeAt(0) === 0xFEFF ? raw.slice(1) : raw;
+        const data = JSON.parse(text);
+        if (!data || !Array.isArray(data.conversations)) {
+          throw new Error('文件缺少 conversations 数组');
+        }
+        if (data.conversations.length === 0) {
+          toast('文件无有效会话', true);
+          return;
+        }
+
+        flushConvSave();
+        const usedIds = new Set(conversations.map((conv) => conv.id));
+        let imported = 0;
+        let skipped = 0;
+        for (const item of data.conversations) {
+          if (!item || typeof item !== 'object' || Array.isArray(item)) {
+            skipped++;
+            continue;
+          }
+          const normalized = Store.normalizeConversation(item);
+          if (!normalized) {
+            skipped++;
+            continue;
+          }
+          const originalId = typeof normalized.id === 'string' && normalized.id ? normalized.id : null;
+          if (originalId && usedIds.has(originalId)) {
+            skipped++;
+            continue;
+          }
+          normalized.id = Store.uuid();
+          conversations.push(normalized);
+          usedIds.add(normalized.id);
+          if (originalId) usedIds.add(originalId);
+          imported++;
+        }
+        Store.saveConversations(conversations);
+        renderAll();
+        toast('导入 ' + imported + ' 条，跳过 ' + skipped + ' 条');
+      } catch (err) {
+        toast('导入失败：' + (err instanceof SyntaxError ? 'JSON 格式错误或文件已损坏' : err.message), true);
+      }
+    };
+    reader.readAsText(file, 'UTF-8');
+  }
+
   /* ---------- 请求 system 与上下文裁剪 ---------- */
   function buildSystemMessages(conv) {
     if (conv.type === 'novel') {
@@ -1834,18 +2111,35 @@ textarea { resize: vertical; }
     return settings.systemPrompt ? [{ role: 'system', content: settings.systemPrompt }] : [];
   }
 
-  function trimContextMessages(messages) {
+  function trimContextMessages(messages, type) {
+    const limits = CONTEXT_LIMITS[type];
     const result = [];
     let totalChars = 0;
-    for (let i = messages.length - 1; i >= 0 && result.length < NOVEL_CONTEXT_LIMIT; i--) {
+    for (let i = messages.length - 1; i >= 0 && result.length < limits.maxMessages; i--) {
       const message = messages[i];
       const length = String(message.content ?? '').length;
-      if (result.length > 0 && totalChars + length > CONTEXT_CHAR_LIMIT) break;
+      if (result.length > 0 && totalChars + length > limits.maxChars) break;
       result.unshift({ role: message.role, content: message.content });
       totalChars += length;
-      if (totalChars >= CONTEXT_CHAR_LIMIT) break;
+      if (totalChars >= limits.maxChars) break;
     }
     return result;
+  }
+
+  function getContextEstimate(conv) {
+    const selected = trimContextMessages(conv.messages, conv.type);
+    return {
+      count: selected.length,
+      chars: selected.reduce((sum, m) => sum + String(m.content ?? '').length, 0),
+    };
+  }
+
+  function renderContextStats() {
+    const conv = getActiveConv();
+    if (!conv || !CONTEXT_LIMITS[conv.type]) return;
+    const stats = getContextEstimate(conv);
+    const target = conv.type === 'novel' ? els.novelContextStats : els.roleplayContextStats;
+    target.textContent = '历史约 ' + stats.chars + ' 字 · ' + stats.count + ' 条';
   }
 
   /* ---------- 发送消息（流式） ---------- */
@@ -1853,6 +2147,7 @@ textarea { resize: vertical; }
     const hasOverride = typeof overrideText === 'string';
     const text = (hasOverride ? overrideText : els.input.value).trim();
     if (!text || abortController) return;
+    hideRequestError();
 
     if (!Store.isConfigured(settings)) {
       openSettings();
@@ -1900,7 +2195,7 @@ textarea { resize: vertical; }
     abortController = new AbortController();
     const previousMessages = conv.messages.slice(0, -1);
     if (hasOverride) previousMessages.push({ role: 'user', content: text });
-    const contextMessages = conv.type === 'chat' ? previousMessages : trimContextMessages(previousMessages);
+    const contextMessages = conv.type === 'chat' ? previousMessages : trimContextMessages(previousMessages, conv.type);
     const requestMessages = [...buildSystemMessages(conv), ...contextMessages];
     try {
       await API.streamChat(settings, requestMessages, {
@@ -1916,8 +2211,11 @@ textarea { resize: vertical; }
       if (err.name === 'AbortError') {
         // 用户主动停止：保留已生成部分
       } else {
+        showRequestError(err);
+        const safeMessage = sanitizeRequestErrorText(err.message);
+        const safeHint = sanitizeRequestErrorText(err.hint || '');
         assistantMsg.content += (assistantMsg.content ? '\n\n' : '') +
-          '> ⚠️ ' + (err.hint ? err.message + '\n> ' + err.hint : err.message);
+          '> ⚠️ ' + (safeHint ? safeMessage + '\n> ' + safeHint : safeMessage);
         node.querySelector('.msg-body').innerHTML = MD.render(assistantMsg.content);
       }
     } finally {
@@ -1926,6 +2224,7 @@ textarea { resize: vertical; }
       setSending(false);
       Store.saveConversations(conversations);
       renderConvList();
+      renderContextStats();
       els.topbarTitle.textContent = conv.title;
       scrollBottom();
     }
@@ -2037,6 +2336,21 @@ textarea { resize: vertical; }
       newConversation(opt.dataset.type);
     });
   }
+  els.btnDataMenu.addEventListener('click', toggleDataMenu);
+  for (const opt of els.dataOptions) {
+    opt.addEventListener('click', () => {
+      closeDataMenu(false);
+      if (opt.dataset.action === 'export-backup') exportAllBackup();
+      if (opt.dataset.action === 'export-markdown') exportCurrentMarkdown();
+      if (opt.dataset.action === 'import-backup') els.importFile.click();
+    });
+  }
+  els.importFile.addEventListener('change', () => {
+    const file = els.importFile.files?.[0];
+    els.importFile.value = '';
+    if (file) importBackup(file);
+  });
+  els.btnCloseRequestError.addEventListener('click', hideRequestError);
   els.btnSettings.addEventListener('click', openSettings);
   els.btnEmptySettings.addEventListener('click', openSettings);
   els.btnToggleSidebar.addEventListener('click', () => els.sidebar.classList.toggle('open'));
@@ -2163,11 +2477,18 @@ textarea { resize: vertical; }
       e.preventDefault();
       closeNewChatMenu(true);
     }
+    if (e.key === 'Escape' && !els.dataMenu.hidden) {
+      e.preventDefault();
+      closeDataMenu(true);
+    }
   });
-  // 点击菜单外部关闭类型选择
+  // 点击菜单外部关闭类型选择与数据菜单
   document.addEventListener('click', (e) => {
     if (!els.newChatMenu.hidden && !e.target.closest('.new-chat-wrap')) {
       closeNewChatMenu(false);
+    }
+    if (!els.dataMenu.hidden && !e.target.closest('.data-menu-wrap')) {
+      closeDataMenu(false);
     }
   });
 
