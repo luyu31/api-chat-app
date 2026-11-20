@@ -239,6 +239,57 @@ html, body {
 }
 .conn-badge.ok { color: var(--accent); border-color: var(--accent); }
 
+/* ---------- 小说设定面板 ---------- */
+.novel-panel {
+  flex-shrink: 0;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+}
+.novel-panel-head {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.novel-panel-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 4px 0;
+  cursor: pointer;
+}
+.novel-panel-toggle:hover { color: var(--text); }
+.novel-panel-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.novel-panel-caret { color: var(--accent); transition: transform 150ms ease-out; }
+.novel-panel-toggle[aria-expanded="true"] .novel-panel-caret { transform: rotate(90deg); }
+.novel-chapter { margin-left: auto; color: var(--accent); font-size: 11px; }
+.novel-panel-body {
+  max-width: 760px;
+  max-height: 44dvh;
+  margin: 0 auto;
+  padding: 0 16px 14px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.novel-panel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.novel-characters { display: flex; flex-direction: column; gap: 8px; }
+.novel-character-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr) 32px;
+  gap: 6px;
+  align-items: center;
+}
+.novel-character-row input { padding: 7px 9px; font-size: 13px; }
+
 /* ---------- 消息列表 ---------- */
 .messages {
   flex: 1;
@@ -341,6 +392,12 @@ html, body {
 .composer {
   flex-shrink: 0;
   padding: 12px 16px 14px;
+}
+.novel-actions {
+  max-width: 760px;
+  margin: 0 auto 8px;
+  display: flex;
+  gap: 8px;
 }
 .composer-box {
   max-width: 760px;
@@ -512,6 +569,10 @@ textarea { resize: vertical; }
   .sidebar.open { transform: translateX(0); box-shadow: 0 0 60px rgba(0,0,0,0.5); }
   .sidebar-toggle { display: inline-flex; }
   .topbar-model { display: none; }
+  .novel-panel-grid { grid-template-columns: 1fr; }
+  .novel-character-row { grid-template-columns: 1fr 1fr 32px; }
+  .novel-character-row [data-character-field="desc"] { grid-column: 1 / 3; grid-row: 2; }
+  .novel-character-row .novel-character-del { grid-column: 3; grid-row: 1; }
 }
 
 /* ---------- 动效降级 ---------- */
@@ -569,6 +630,52 @@ textarea { resize: vertical; }
         <span class="conn-badge" id="conn-badge" title="API 连接状态">未配置</span>
       </header>
 
+      <!-- 小说设定：仅小说会话显示 -->
+      <section class="novel-panel" id="novel-panel" hidden>
+        <div class="novel-panel-head">
+          <button class="novel-panel-toggle" id="btn-novel-panel-toggle" type="button" aria-expanded="false" aria-controls="novel-panel-body">
+            <span class="novel-panel-caret" aria-hidden="true">▸</span>
+            <span>小说设定</span>
+          </button>
+          <span class="novel-chapter mono" id="novel-chapter">第 1 章</span>
+        </div>
+        <div class="novel-panel-body" id="novel-panel-body" hidden>
+          <div class="novel-panel-grid">
+            <label class="field">
+              <span class="field-label">书名</span>
+              <input type="text" id="novel-title" autocomplete="off" />
+            </label>
+            <label class="field">
+              <span class="field-label">题材</span>
+              <input type="text" id="novel-genre" list="novel-genres" autocomplete="off" />
+              <datalist id="novel-genres">
+                <option value="都市"></option>
+                <option value="玄幻"></option>
+                <option value="科幻"></option>
+                <option value="悬疑"></option>
+                <option value="历史"></option>
+                <option value="言情"></option>
+              </datalist>
+            </label>
+          </div>
+          <label class="field">
+            <span class="field-label">世界观</span>
+            <textarea id="novel-world" rows="3"></textarea>
+          </label>
+          <label class="field">
+            <span class="field-label">故事大纲</span>
+            <textarea id="novel-outline" rows="4"></textarea>
+          </label>
+          <div class="field">
+            <span class="field-label">人物列表</span>
+            <div class="novel-characters" id="novel-characters"></div>
+            <div>
+              <button class="btn btn-ghost btn-sm" id="btn-add-character" type="button">+ 添加人物</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section class="messages" id="messages" aria-live="polite"></section>
 
       <!-- 空状态 -->
@@ -579,6 +686,10 @@ textarea { resize: vertical; }
       </div>
 
       <footer class="composer">
+        <div class="novel-actions" id="novel-actions" hidden>
+          <button class="btn btn-ghost btn-sm" id="btn-continue-novel" type="button">续写</button>
+          <button class="btn btn-ghost btn-sm" id="btn-new-chapter" type="button">新章节</button>
+        </div>
         <div class="composer-box">
           <textarea id="input" rows="1" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
           <div class="composer-actions">
@@ -877,9 +988,15 @@ textarea { resize: vertical; }
     });
     if (t === 'novel') {
       const meta = conv.novelMeta && typeof conv.novelMeta === 'object' ? conv.novelMeta : {};
-      out.novelMeta = Object.assign(defaultNovelMeta(), meta, {
-        characters: Array.isArray(meta.characters) ? meta.characters : [],
-      });
+      const characters = (Array.isArray(meta.characters) ? meta.characters : [])
+        .filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+        .map((item) => ({
+          id: typeof item.id === 'string' && item.id ? item.id : uuid(),
+          name: typeof item.name === 'string' ? item.name : '',
+          role: typeof item.role === 'string' ? item.role : '',
+          desc: typeof item.desc === 'string' ? item.desc : '',
+        }));
+      out.novelMeta = Object.assign(defaultNovelMeta(), meta, { characters });
     }
     if (t === 'roleplay') {
       const meta = conv.roleplayMeta && typeof conv.roleplayMeta === 'object' ? conv.roleplayMeta : {};
@@ -1068,6 +1185,64 @@ textarea { resize: vertical; }
 
 ;
 /**
+ * novel.js — 小说模式专用的 system prompt 纯函数
+ */
+(function () {
+  'use strict';
+
+  function cleanText(value) {
+    if (value === undefined || value === null) return '';
+    return String(value).trim().replace(/\n{3,}/g, '\n\n');
+  }
+
+  /**
+   * 根据小说设定构建 system prompt；空字段对应整段不输出。
+   * @param {object} conv 小说会话
+   * @returns {string}
+   */
+  function buildNovelSystemPrompt(conv) {
+    const meta = conv?.novelMeta ?? {};
+    const sections = [
+      '你是一位专业小说作者。请严格依据以下设定和用户指令创作，保持设定一致。',
+    ];
+
+    const bookInfo = [];
+    const title = cleanText(meta.title);
+    const genre = cleanText(meta.genre);
+    if (title) bookInfo.push('书名：' + title);
+    if (genre) bookInfo.push('题材：' + genre);
+    if (bookInfo.length) sections.push('作品信息\n' + bookInfo.join('\n'));
+
+    const worldSetting = cleanText(meta.worldSetting);
+    if (worldSetting) sections.push('世界观\n' + worldSetting);
+
+    const characters = (Array.isArray(meta.characters) ? meta.characters : [])
+      .filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+      .map((item) => {
+        const name = cleanText(item.name);
+        const role = cleanText(item.role);
+        const desc = cleanText(item.desc);
+        const identity = name ? name + (role ? '（' + role + '）' : '') : role;
+        return [identity, desc].filter(Boolean).join('：');
+      })
+      .filter(Boolean);
+    if (characters.length) sections.push('人物\n' + characters.map((line) => '- ' + line).join('\n'));
+
+    const outline = cleanText(meta.outline);
+    if (outline) sections.push('故事大纲\n' + outline);
+
+    sections.push(
+      '输出规范\n以第三人称叙述；保持人物性格与说话风格一致；直接输出正文；' +
+      '不写「好的，以下是」这类开场白；不总结、不复述已有情节。'
+    );
+    return sections.join('\n\n');
+  }
+
+  window.NovelPrompt = { buildNovelSystemPrompt };
+})();
+
+;
+/**
  * app.js — 界面逻辑：会话管理、消息渲染、流式输出、设置弹窗
  */
 (function () {
@@ -1087,6 +1262,19 @@ textarea { resize: vertical; }
     topbarTitle: $('topbar-title'),
     topbarModel: $('topbar-model'),
     connBadge: $('conn-badge'),
+    novelPanel: $('novel-panel'),
+    btnNovelPanelToggle: $('btn-novel-panel-toggle'),
+    novelPanelBody: $('novel-panel-body'),
+    novelChapter: $('novel-chapter'),
+    novelTitle: $('novel-title'),
+    novelGenre: $('novel-genre'),
+    novelWorld: $('novel-world'),
+    novelOutline: $('novel-outline'),
+    novelCharacters: $('novel-characters'),
+    btnAddCharacter: $('btn-add-character'),
+    novelActions: $('novel-actions'),
+    btnContinueNovel: $('btn-continue-novel'),
+    btnNewChapter: $('btn-new-chapter'),
     messages: $('messages'),
     emptyState: $('empty-state'),
     input: $('input'),
@@ -1114,6 +1302,10 @@ textarea { resize: vertical; }
 
   /* 会话类型 → 列表标签 */
   const TYPE_LABELS = { novel: '小说', roleplay: '角色', chat: '聊天' };
+  const NOVEL_CONTEXT_LIMIT = 12;
+  const NOVEL_CONTINUE_INSTRUCTION = '请紧接着上面的内容继续写，保持文风、人称和人物状态一致，直接输出正文，不要重复已写内容，不要总结';
+  const novelPanelOpen = new Map(); // 仅内存保存折叠状态
+  let novelSaveTimer = null;
 
   /* ---------- 工具 ---------- */
   function toast(msg, isError) {
@@ -1143,6 +1335,79 @@ textarea { resize: vertical; }
       els.connBadge.classList.remove('ok');
     }
     els.topbarModel.textContent = Store.isConfigured(settings) ? '' : '';
+  }
+
+  /* ---------- 小说设定面板 ---------- */
+  function ensureNovelMeta(conv) {
+    if (!conv.novelMeta || typeof conv.novelMeta !== 'object') {
+      conv.novelMeta = { title: '', genre: '', characters: [], worldSetting: '', outline: '', currentChapter: 0 };
+    }
+    if (!Array.isArray(conv.novelMeta.characters)) conv.novelMeta.characters = [];
+    return conv.novelMeta;
+  }
+
+  function scheduleNovelSave() {
+    clearTimeout(novelSaveTimer);
+    novelSaveTimer = setTimeout(flushNovelSave, 500);
+  }
+
+  function flushNovelSave() {
+    if (!novelSaveTimer) return;
+    clearTimeout(novelSaveTimer);
+    novelSaveTimer = null;
+    Store.saveConversations(conversations);
+  }
+
+  function renderNovelCharacters(characters) {
+    els.novelCharacters.innerHTML = '';
+    for (const character of characters) {
+      const row = document.createElement('div');
+      row.className = 'novel-character-row';
+      row.dataset.characterId = character.id;
+
+      for (const [field, placeholder] of [['name', '姓名'], ['role', '身份'], ['desc', '描述']]) {
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.dataset.characterField = field;
+        input.placeholder = placeholder;
+        input.setAttribute('aria-label', placeholder);
+        input.value = character[field] ?? '';
+        row.appendChild(input);
+      }
+
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'icon-btn novel-character-del';
+      del.dataset.deleteCharacter = character.id;
+      del.setAttribute('aria-label', '删除人物');
+      del.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13"><path d="M3 3l10 10M13 3 3 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+      row.appendChild(del);
+      els.novelCharacters.appendChild(row);
+    }
+  }
+
+  function renderNovelPanel() {
+    const conv = getActiveConv();
+    const isNovel = conv?.type === 'novel';
+    els.novelPanel.hidden = !isNovel;
+    els.novelActions.hidden = !isNovel;
+    if (!isNovel) return;
+
+    const meta = ensureNovelMeta(conv);
+    els.novelTitle.value = meta.title ?? '';
+    els.novelGenre.value = meta.genre ?? '';
+    els.novelWorld.value = meta.worldSetting ?? '';
+    els.novelOutline.value = meta.outline ?? '';
+    els.novelChapter.textContent = '第 ' + ((Number(meta.currentChapter) || 0) + 1) + ' 章';
+
+    let open = novelPanelOpen.get(conv.id);
+    if (open === undefined) {
+      open = conv.messages.length === 0 && !String(meta.title ?? '').trim();
+      novelPanelOpen.set(conv.id, open);
+    }
+    els.novelPanelBody.hidden = !open;
+    els.btnNovelPanelToggle.setAttribute('aria-expanded', String(open));
+    renderNovelCharacters(meta.characters);
   }
 
   /* ---------- 渲染：会话列表 ---------- */
@@ -1187,6 +1452,7 @@ textarea { resize: vertical; }
       item.appendChild(del);
 
       const open = () => {
+        flushNovelSave();
         activeId = conv.id;
         Store.saveActiveId(activeId);
         renderAll();
@@ -1201,6 +1467,7 @@ textarea { resize: vertical; }
   }
 
   function deleteConversation(id) {
+    flushNovelSave();
     conversations = conversations.filter((c) => c.id !== id);
     Store.saveConversations(conversations);
     if (activeId === id) {
@@ -1274,11 +1541,13 @@ textarea { resize: vertical; }
     els.topbarTitle.textContent = conv ? conv.title : '新对话';
     renderConnBadge();
     renderConvList();
+    renderNovelPanel();
     renderMessages();
   }
 
   /* ---------- 会话操作 ---------- */
   function newConversation(type) {
+    flushNovelSave();
     const conv = Store.createConversation(type);
     conversations.push(conv);
     activeId = conv.id;
@@ -1309,8 +1578,8 @@ textarea { resize: vertical; }
   }
 
   /* ---------- 发送消息（流式） ---------- */
-  async function sendMessage() {
-    const text = els.input.value.trim();
+  async function sendMessage(overrideText) {
+    const text = (typeof overrideText === 'string' ? overrideText : els.input.value).trim();
     if (!text || abortController) return;
 
     if (!Store.isConfigured(settings)) {
@@ -1329,7 +1598,9 @@ textarea { resize: vertical; }
     }
 
     // 用户消息落库
-    conv.messages.push({ role: 'user', content: text, ts: Date.now() });
+    const userMsg = { role: 'user', content: text, ts: Date.now() };
+    if (conv.type === 'novel') userMsg.chapter = Number(conv.novelMeta?.currentChapter) || 0;
+    conv.messages.push(userMsg);
     if (conv.title === '新对话') conv.title = autoTitle(text);
     Store.saveConversations(conversations);
 
@@ -1340,6 +1611,7 @@ textarea { resize: vertical; }
 
     // 占位助手消息，边收边渲染
     const assistantMsg = { role: 'assistant', content: '', ts: Date.now() };
+    if (conv.type === 'novel') assistantMsg.chapter = userMsg.chapter;
     conv.messages.push(assistantMsg);
     const node = msgNode(assistantMsg);
     node.querySelector('.msg-body').classList.add('cursor-blink');
@@ -1348,10 +1620,18 @@ textarea { resize: vertical; }
     els.messages.style.display = '';
 
     abortController = new AbortController();
+    const isNovel = conv.type === 'novel';
+    const previousMessages = conv.messages.slice(0, -1);
+    const requestMessages = isNovel
+      ? [
+          { role: 'system', content: NovelPrompt.buildNovelSystemPrompt(conv) },
+          ...previousMessages.slice(-NOVEL_CONTEXT_LIMIT).map((m) => ({ role: m.role, content: m.content })),
+        ]
+      : previousMessages;
     try {
-      await API.streamChat(settings, conv.messages.slice(0, -1), {
+      await API.streamChat(settings, requestMessages, {
         signal: abortController.signal,
-        systemPrompt: settings.systemPrompt || undefined,
+        ...(isNovel ? {} : { systemPrompt: settings.systemPrompt || undefined }),
         onDelta: (delta) => {
           assistantMsg.content += delta;
           const body = node.querySelector('.msg-body');
@@ -1378,10 +1658,29 @@ textarea { resize: vertical; }
     }
   }
 
+  function continueNovel() {
+    const conv = getActiveConv();
+    if (conv?.type !== 'novel' || abortController) return;
+    sendMessage(els.input.value.trim() || NOVEL_CONTINUE_INSTRUCTION);
+  }
+
+  function newNovelChapter() {
+    const conv = getActiveConv();
+    if (conv?.type !== 'novel' || abortController) return;
+    flushNovelSave();
+    const meta = ensureNovelMeta(conv);
+    meta.currentChapter = (Number(meta.currentChapter) || 0) + 1;
+    Store.saveConversations(conversations);
+    renderNovelPanel();
+    els.input.focus();
+  }
+
   function setSending(sending) {
     els.btnSend.disabled = sending;
     els.btnStop.hidden = !sending;
     els.input.disabled = sending;
+    els.btnContinueNovel.disabled = sending;
+    els.btnNewChapter.disabled = sending;
   }
 
   function stopStreaming() {
@@ -1476,6 +1775,57 @@ textarea { resize: vertical; }
       sendMessage();
     }
   });
+
+  els.btnNovelPanelToggle.addEventListener('click', () => {
+    const conv = getActiveConv();
+    if (conv?.type !== 'novel') return;
+    novelPanelOpen.set(conv.id, els.novelPanelBody.hidden);
+    renderNovelPanel();
+  });
+  for (const [input, field] of [
+    [els.novelTitle, 'title'],
+    [els.novelGenre, 'genre'],
+    [els.novelWorld, 'worldSetting'],
+    [els.novelOutline, 'outline'],
+  ]) {
+    input.addEventListener('input', () => {
+      const conv = getActiveConv();
+      if (conv?.type !== 'novel') return;
+      ensureNovelMeta(conv)[field] = input.value;
+      scheduleNovelSave();
+    });
+  }
+  els.btnAddCharacter.addEventListener('click', () => {
+    const conv = getActiveConv();
+    if (conv?.type !== 'novel') return;
+    const meta = ensureNovelMeta(conv);
+    meta.characters.push({ id: Store.uuid(), name: '', role: '', desc: '' });
+    scheduleNovelSave();
+    renderNovelCharacters(meta.characters);
+    els.novelCharacters.lastElementChild?.querySelector('input')?.focus();
+  });
+  els.novelCharacters.addEventListener('input', (e) => {
+    const field = e.target.dataset.characterField;
+    const row = e.target.closest('.novel-character-row');
+    const conv = getActiveConv();
+    if (!field || !row || conv?.type !== 'novel') return;
+    const character = ensureNovelMeta(conv).characters.find((c) => c.id === row.dataset.characterId);
+    if (!character) return;
+    character[field] = e.target.value;
+    scheduleNovelSave();
+  });
+  els.novelCharacters.addEventListener('click', (e) => {
+    const button = e.target.closest('[data-delete-character]');
+    const conv = getActiveConv();
+    if (!button || conv?.type !== 'novel') return;
+    const meta = ensureNovelMeta(conv);
+    meta.characters = meta.characters.filter((c) => c.id !== button.dataset.deleteCharacter);
+    scheduleNovelSave();
+    renderNovelCharacters(meta.characters);
+  });
+  els.btnContinueNovel.addEventListener('click', continueNovel);
+  els.btnNewChapter.addEventListener('click', newNovelChapter);
+  window.addEventListener('beforeunload', flushNovelSave);
 
   els.form.addEventListener('submit', (e) => { e.preventDefault(); saveSettingsFromForm(); });
   els.btnCancelSettings.addEventListener('click', closeSettings);
